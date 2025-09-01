@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${SA_NAME}
+  namespace: ${SA_NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${SA_NAME}-trainjobs-editor
+  namespace: ${SA_NAMESPACE}
+rules:
+- apiGroups: ["trainer.kubeflow.org"]
+  resources: ["trainjobs"]
+  verbs: ["get","list","watch","create","update","patch","delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${SA_NAME}-trainjobs-editor-binding
+  namespace: ${SA_NAMESPACE}
+subjects:
+- kind: ServiceAccount
+  name: ${SA_NAME}
+  namespace: ${SA_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${SA_NAME}-trainjobs-editor

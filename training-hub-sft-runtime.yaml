@@ -1,0 +1,37 @@
+apiVersion: trainer.kubeflow.org/v1alpha1
+kind: ClusterTrainingRuntime
+metadata:
+  name: training-hub-sft
+  labels:
+    trainer.kubeflow.org/framework: training-hub  
+spec:
+  mlPolicy:
+    numNodes: 1
+    torch:
+      numProcPerNode: auto
+  template:
+    spec:
+      replicatedJobs:
+        - name: node
+          replicas: 1
+          template:
+            metadata:
+              labels:
+                trainer.kubeflow.org/trainjob-ancestor-step: trainer
+            spec:
+              template:
+                spec:
+                  containers:
+                    - command:
+                        - /bin/bash
+                        - '-c'
+                        - |
+                          echo "Torch Distributed Runtime"
+
+                          echo "--------------------------------------"
+                          echo "Torch Default Runtime Env"
+                          env | grep PET_
+
+                          pip list
+                      image: 'pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime'
+                      name: node

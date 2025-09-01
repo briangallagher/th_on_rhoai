@@ -1,0 +1,114 @@
+apiVersion: trainer.kubeflow.org/v1alpha1
+kind: TrainJob
+metadata:
+  name: u45f1b559160
+  namespace: test-sdk
+spec:
+  managedBy: trainer.kubeflow.org/trainjob-controller
+  podSpecOverrides:
+    - containers:
+        - name: node
+          volumeMounts:
+            - mountPath: /opt/app-root/src/
+              name: example
+              readOnly: false
+      targetJobs:
+        - name: node
+      volumes:
+        - name: example
+          persistentVolumeClaim:
+            claimName: example
+  runtimeRef:
+    apiGroup: trainer.kubeflow.org
+    kind: ClusterTrainingRuntime
+    name: training-hub-sft
+  suspend: false
+  trainer:
+    args:
+      - |-
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python -m ensurepip || python -m ensurepip --user || apt-get install python-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python -m pip install --quiet         --no-warn-script-location --index-url https://pypi.org/simple training-hub 
+
+        read -r -d '' SCRIPT << EOM
+
+        def training_func(func_args):
+            import os
+            from training_hub import sft
+
+            # Verify data_path exists before training
+            _dp = (func_args or {}).get('data_path')
+            if _dp:
+                if os.path.isfile(_dp):
+                    print(f"[PY] Data file found: {_dp}")
+                else:
+                    print(f"[PY] Data file NOT found: {_dp}")
+
+            # Read env vars for distributed training
+            master_addr = os.environ.get("PET_MASTER_ADDR", "127.0.0.1")
+            master_port = os.environ.get("PET_MASTER_PORT", "29500")
+            node_rank = int(os.environ.get("PET_NODE_RANK", "0"))
+            rdzv_endpoint = f"{master_addr}:{master_port}"
+
+            # Merge func_args with env overrides
+            args = dict(func_args or {})
+            args['node_rank'] = node_rank
+            args['rdzv_endpoint'] = rdzv_endpoint
+            print("[PY] Launching SFT training...")
+            try:
+                result = sft(**args)
+                print("[PY] SFT training complete. Result=", result)
+            except ValueError as e:
+                print(f"Configuration error: {e}")
+            except Exception as e:
+                import traceback
+                print("[PY] Training failed with error:", e)
+                traceback.print_exc()
+
+            print('[PY] Training finished successfully.')
+
+        training_func({
+            'model_path': 'Qwen/Qwen2.5-0.5B',
+            'data_path': '/opt/app-root/src/data/dataset.jsonl',
+            'ckpt_output_dir': '/opt/app-root/src/checkpoints',
+            'data_output_dir': '/opt/app-root/src/outputs',
+            'num_epochs': 1,
+            'effective_batch_size': 128,
+            'max_tokens_per_gpu': 2048,
+            'learning_rate': 1e-05,
+            'max_seq_len': 512,
+            'max_batch_len': 512,
+            'save_samples': 0,
+            'warmup_steps': 100,
+            'checkpoint_at_epoch': True,
+            'accelerate_full_state_at_epoch': True,
+            'rdzv_id': 1,
+            'disable_flash_attn': True,
+            'packing': False,
+            'enable_multipack': False,
+            'fp16': True,
+            'bf16': False,
+            'gradient_checkpointing': True,
+            'distributed_training_framework': 'fsdp',
+            'fsdp_sharding_strategy': 'SHARD_GRAD_OP',
+            'disable_multipack': True,
+            'dtype': 'float16',
+            'nproc_per_node': 1,
+            'nnodes': 2,
+        })
+
+        EOM
+        printf "%s" "$SCRIPT" > "training_script.py"
+        python "training_script.py"
+    command:
+      - bash
+      - '-c'
+    numNodes: 2
+    resourcesPerNode:
+      limits:
+        nvidia.com/gpu: '1'
+      requests:
+        nvidia.com/gpu: '1'
